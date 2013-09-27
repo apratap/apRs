@@ -5,12 +5,22 @@
 #load the modules
 library(synapseClient)
 require(Heatplus)
+library(gplots)
+library(RColorBrewer)
+library(pheatmap)
 
 #login to synapse
 synapseLogin()
 
 #get the PCBC gene normlz counts from synapse
-syn_geneNormCounts <- synGet('syn1968267')
+syn_geneNormCounts_v1 <- synGet('syn1968267',version=1)
+syn_geneNormCounts_v2 <- synGet('syn1968267',version=2)
+syn_geneNormCounts_v3 <- synGet('syn1968267',version=3)
+
+
+
+#read in the file
+geneNormCounts <- read.table(syn_geneNormCounts_v3@filePath,header=T,sep='\t')
 
 #get the metadata from the synapse about the above sampled
 #get the meta about PCBC samples
@@ -23,13 +33,11 @@ cols_to_be_deleted = c('entity.benefactorId', 'entity.concreteType', 'entity.cre
                        'entity.createdOn', 'entity.createdByPrincipalId', 'entity.id', 
                        'entity.modifiedOn', 'entity.modifiedByPrincipalId', 'entity.noteType', 
                        'entity.versionLabel', 'entity.versionComment', 'entity.versionNumber', 
-                       'entity.parentId', 'entity.description')
+                       'entity.parentId', 'entity.description', 'entity.eTag')
 metadata <- metadata[,!names(metadata) %in% cols_to_be_deleted]
 
 #remove the prefix 'entity.' from the df col names
 names(metadata) <- gsub('entity.','',names(metadata))
-
-head(metadata)
 
 
 apply(metadata,2,unique)
@@ -39,19 +47,32 @@ apply(metadata,2,unique)
 MSIGDB<-synGet("syn2227979")
 load(MSIGDB@filePath) #available as MSigDB R object
 
-MSigDB$C2.CP.KEGG$KEGG_HEMATOPOIETIC_CELL_LINEAGE
-"GP1BA"     "GP1BB"     "EPO"       "IL9R"      "CD33"      "TNF" 
-
-#read in the file
-geneNormCounts <- read.table(syn_geneNormCounts@filePath,header=T,sep='\t')
 
 
 #select genes in a given pathway
 select_pathwayGenes <- MSigDB$C2.CP.KEGG$KEGG_HEMATOPOIETIC_CELL_LINEAGE
 selected_geneNormCounts <- subset(geneNormCounts, symbol %in% select_pathwayGenes)
+dim(selected_geneNormCounts)
+
+#filter based on samples selected
+dim(metadata)
+metadata$bamName <- gsub('-','.',metadata$bamName) #fix R reading error '-' is converted to .
+filtered_sample_names <- intersect(names(selected_geneNormCounts),metadata$bamName)
+selected_geneNormCounts <- selected_geneNormCounts[ , names(selected_geneNormCounts) %in% filtered_sample_names] 
 
 
-# get only the normalized gene counts
+selected_metadata <- subset(metadata, bamName %in% filtered_sample_names)
+dim(selected_metadata)
+
+
+annotation <- data.frame(sex = selected_metadata$donorsex.cell.lines,
+                         level_1_diff_state = selected_metadata$grouplevel1differentiationstate,
+                         level_3_diff_state = selected_metadata$grouplevel3differentiationstate)
+
+#assign the sample names to row names so that the heatmap function could use them for labelling
+rownames(annotation) <- selected_metadata$bamName
+head(annotation)
+
 # eliminate the first 3 cols to get rid of the annotation
 m <- as.matrix(selected_geneNormCounts[4:ncol(selected_geneNormCounts)])
 
@@ -68,46 +89,56 @@ m <-  m[-drop_genes,]
 mat.scaled <- t(scale(t(m)))
 
 
+pheatmap(mat.scaled,
+         annotation = annotation,
+         scale="none",
+         clustering_distance_rows = "correlation",
+         clustering_distance_cols = "correlation",
+         clustering_method = "average",
+         fontsize_col = 5
+)
+
+
+
 
 #custom functions for heatmap plus
 corrdist <- function(x) as.dist( 1 - cor(t(x),method="spearman"))
 hclust.avl = function(x) hclust(x, method="average")
 
 
-#v3
+heatmap.plus(mat.scaled,
+             hclustfun=hclust.avl,
+             distfun=corrdist,
+             scale="none",
+             dendrogram="both",
+             col=colorRampPalette(c("darkgreen","red","darkred"))(n = 100)
+             )
+
+
+source("heatmap.3.R")
+heatmap.3(mat.scaled,hclustfun=hclust.avl,
+          distfun=corrdist,na.rm=TRUE,
+          scale="none",
+          dendrogram="both",
+          margins = c(4,6),
+          key=TRUE,
+          symbreaks=FALSE,
+          symkey=FALSE,
+          density.info ="none",
+          trace = "none",
+          labCol = FALSE,
+          cexRow=1,
+          col=colorRampPalette(c("darkgreen","darkred","red"))(n = 1000))
+
+)
+
+
+
 reg3 <- regHeatmap(mat.scaled,
-                   legend=2,
                    dendrogram = list(clustfun=hclust.avl,
-                                     distfun = corrdist))
+                                     distfun = corrdist),
+                   legend=2
+                   )
+
 plot(reg3)
 
-
-test_string <- "C,C,C,C C"
-unlist(strsplit(test_string,split=c('[\\s,\\n\\r)]'),perl=T))
-
-
-#v1
-# reg1 <- regHeatmap(mat.scaled)
-# plot(reg1)
-
-#v2
-# reg2 <- regHeatmap(mat.scaled,legend=2,col=heat.colors,breaks=-3:3)
-# plot(reg2)
-
-
-
-#removing those genes which dont vary much across the samples
-# so any gene with SD < .2 across the samples will be dropped 
-#drop_genes <- which(apply(m,1,sd) < .2)
-#m <-  m[-drop_genes,]
-
-#NO more need to do this as the above step will take care of removing genes with SD = 0 or all with expr value = 0
-#ignore those rows which have all the values == 0
-# these are genes with no expression
-#genes_with_no_expression_in_any_sample <- apply(m,1, function(x) all(x==0))
-#m <- m[!(genes_with_no_expression_in_any_sample),]
-
-
-#sampling for testing
-#sampled_rows <- sample(seq(1:nrow(m)),200,replace = F)
-#sampled_m <- m[sampled_rows,]
