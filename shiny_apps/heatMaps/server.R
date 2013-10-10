@@ -3,61 +3,71 @@ library("shiny")
 
 
 #load local files
-source("./getDATA.R")
+#source("./getDATA.R")
 source("./geneExpression_heatMap.R")
 
 
 #Define the server the logic
 shinyServer(function(input,output,session){
 
+  #to check when the plot is rendered
+  plotRendered <- reactiveValues(flag=FALSE)
+  
    #select the list of samples to show
    #Based on USER Selected filter options
    #directly obtained from filtered meta data
    filtered_sample_names <- reactive({
      get_filtered_metadata()$bamName
+     
    })
    
    #filter the metadata based on the user selected options
    get_filtered_metadata <- reactive({
      filtered_metadata <- metadata
-     #1. Filter based on user selected level 1 diff state
-     if( length(input$level_1_diff_state) != 0 ){
-       filtered_metadata <- subset(filtered_metadata, grouplevel1differentiationstate %in% input$level_1_diff_state)  
+     #1. Filter based on user selected line type
+     if( length(input$mod_linetype) != 0 ){
+       filtered_metadata <- subset(filtered_metadata, mod_linetype %in% input$mod_linetype)
      }
-     #2. filter based on user selected level 3 diff state
-     if( length(input$level_3_diff_state) != 0 ){
-       filtered_metadata <- subset(filtered_metadata, grouplevel3differentiationstate %in% input$level_3_diff_state)  
+     #2. filter based on user selected short differentiation name
+     if( length(input$mod_diffnameshort) != 0 ){
+       filtered_metadata <- subset(filtered_metadata, mod_diffnameshort %in% input$mod_diffnameshort)  
      }
      #3. filter based on cell origin
      if(length(input$cell_origin) != 0){
-       filtered_metadata <- subset(filtered_metadata, celltypeoforigin %in% input$cell_origin)
+       filtered_metadata <- subset(filtered_metadata, mod_origcell %in% input$cell_origin)
      }
+     #4. filter based on induction genes
+     if(length(input$induction_genes) != 0){
+       filtered_metadata <- subset(filtered_metadata, inductiongenes %in% input$induction_genes)
+     }
+     
      # converting to match the  sample names in the geneNorm counts matrix
-     filtered_metadata$bamName <- gsub('-','.',as.vector(filtered_metadata$bamName))
+     filtered_metadata$bamName <- gsub('-','.',as.vector(filtered_metadata$decoratedName))
      filtered_metadata
    })
   
    #get list of genes in current pathway or user entered list
    selected_genes <- reactive({
+     if ( length(input$enrichedPathways) == 0 ){
+      
+     }
      if(input$enrichedPathways == 'NA' ){
        user_submitted_gene_set()
      }
      else if(input$enrichedPathways == 'ALL'){
-         #get union of all the genes in the enriched pathways for this gene
-        
-        #1. get a list of all genes in the enriched pathways in this geneList
+        #get union of all the genes in the enriched pathways for this geneList
          enriched_pathways <- gsub('#p.adj_.*','', get_enrichedPathways())
          genes <- lapply(enriched_pathways,function(x) {MSigDB$C2.CP.KEGG[[x]]})
          Reduce(union,genes)
      }
      else{
+       #1. get a list of all genes in the selected enriched pathway
        #trimming the suffix : #pdj-
        pathway = gsub('#p.adj_.*','',input$enrichedPathways)
        MSigDB$C2.CP.KEGG[[pathway]]
      }
    })
   
-   
    #get list of pathways enriched in the geneList selected by the user
    get_enrichedPathways <- reactive({
      if(input$user_selected_geneList == "Custom gene list"){
@@ -72,22 +82,25 @@ shinyServer(function(input,output,session){
    
    
    #update the enriched pathways for the user selected genelist
-#    updateSelectInput(session = session,
-#                      inputId = "enrichedPathways",
-#                      label = sprintf('Enriched pathway/s: %d', length(get_enrichedPathays())),
-#                      choices = get_enrichedPathways(),
-#                      selected = get_enrichedPathways()[[1]]
-#    ) 
-   
+   observe({
+     enriched_Pathways = sort(get_enrichedPathways())
+     updateSelectInput(session = session,
+                       inputId = "enrichedPathways",
+                       label = sprintf('Enriched pathway/s: %d', sum(! enriched_Pathways %in% c('NA','ALL'))),
+                       choices = enriched_Pathways,
+                       selected = enriched_Pathways[[1]]
+                       
+     ) 
+   })
    
    #function to render a dynamic dropdown on the UI
-   output$enrichedPathways <- renderUI({
-     enriched_Pathways = get_enrichedPathways()
-     selectInput("enrichedPathways",
-                 sprintf("Enriched Pathways: %d", sum(! enriched_Pathways %in% c('NA','ALL'))), 
-                 choices = sort(enriched_Pathways)
-     )
-   })
+#    output$enrichedPathways <- renderUI({
+#      enriched_Pathways = get_enrichedPathways()
+#      selectInput("enrichedPathways",
+#                  sprintf("Enriched Pathways: %d", sum(! enriched_Pathways %in% c('NA','ALL'))), 
+#                  choices = sort(enriched_Pathways)
+#      )
+#    })
 
    
    ###
@@ -116,10 +129,9 @@ shinyServer(function(input,output,session){
      
      filtered_metadata <- subset(get_filtered_metadata(), bamName %in% filtered_sample_names())
      
-     annotation <- data.frame(sex                = filtered_metadata$donorsex.cell.lines,
-                              cell_origin        = filtered_metadata$celltypeoforigin,
-                              #level_1_diff_state = filtered_metadata$grouplevel1differentiationstate,
-                              level_3_diff_state = filtered_metadata$grouplevel3differentiationstate)
+     annotation_cols <- heatmap_annotation_cols[input$heatmap_annotation_labels]
+     annotation <- as.data.frame(filtered_metadata[,annotation_cols])
+     names(annotation) <- input$heatmap_annotation_labels
      
      #assign the sample names to row names so that the heatmap function could use them for labelling
      rownames(annotation) <- filtered_metadata$bamName
@@ -129,11 +141,24 @@ shinyServer(function(input,output,session){
    
    #return the heatMap plot
    output$heatMap <- renderPlot({  
+     plotRendered$set <- FALSE
      m <- as.matrix(selected_geneNormCounts())
      annotation <- get_filtered_genesAnnotation()
      #plot the heatmap
      get_geneExpression_heatMap(m,annotation)  #available in geneExpression_heatMap.R
+     plotRendered$set <- TRUE
    })
+  
+  
+  #function to display if a plot is being rendered
+  output$msg <- renderText({
+    if(plotRendered$set == TRUE){
+      ''
+    }
+    else if(plotRendered$set == FALSE){
+      'rendering...'
+    }
+  })
   
    
   #create summary table
