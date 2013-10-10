@@ -1,9 +1,15 @@
 #!/usr/bin/env Rscript
 
+#########################
+#By: Abhishek Pratap
+#Sage Bionetworks
+#######################
+
 
 #load the modules
 library(getopt,quietly=TRUE)
 library(gplots,quietly=TRUE)
+library("RColorBrewer")
 
 
 SPEC =  matrix ( 
@@ -59,16 +65,17 @@ draw_heatmap <- function(m){
   c <- cor(t(mat.scaled),method="spearman")
   dist.corr <- as.dist(1-c)
   clust.agg.complete <- hclust(dist.corr,method="complete",members=NULL)
-  #plot(as.dendrogram(clust.agg.complete), edgePar=list(col=2, lwd=2), horiz=T,hang=-1,xlab="+ hang = -1")
   
   # Cuts the tree and creates color vector for clusters.
-  trimmed_tree_clusters <- cutree(clust.agg.complete,h=max(clust.agg.complete$height)/1.5)
-  mycolhc <- rainbow(length(unique(trimmed_tree_clusters)),start=0.1,end=0.9)
-  mycolhc <- mycolhc[as.vector(trimmed_tree_clusters)]
-  myheatcol <- greenred(75)
+#   trimmed_tree_clusters <- cutree(clust.agg.complete,h=max(clust.agg.complete$height)/1.5)
+#   mycolhc <- rainbow(length(unique(trimmed_tree_clusters)),start=0.1,end=0.9)
+#   mycolhc <- mycolhc[as.vector(trimmed_tree_clusters)]
+#     myheatcol <- greenred(75)
+  
+  myPalette <- colorRampPalette(rev(brewer.pal(11, "Spectral")))
+
   heatmap.2( mat.scaled,Rowv=as.dendrogram(clust.agg.complete)
-             ,col=myheatcol
-             ,RowSideColors=mycolhc
+             ,col= myPalette(100)
              ,key=TRUE
              ,keysize=1
              ,density.info="none"
