@@ -3,7 +3,6 @@ library("shiny")
 
 
 #load local files
-#source("./getDATA.R")
 source("./geneExpression_heatMap.R")
 
 
