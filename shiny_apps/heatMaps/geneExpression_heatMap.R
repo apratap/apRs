@@ -1,6 +1,6 @@
 #require("Heatplus")
 require("pheatmap")
-library("R.cache")
+#library("R.cache")
 #source("pheatmap_mod.R")
 
 #gene expression heatmap logic
@@ -28,6 +28,10 @@ get_geneExpression_heatMap <- function(m,annotation,...){
            border_color = NA
   )
   
+
+}
+
+
 #   memoizedCall(what=pheatmap,
 #                mat.scaled,
 #                scale="none",
@@ -43,9 +47,9 @@ get_geneExpression_heatMap <- function(m,annotation,...){
 #                dirs=NULL,
 #                verbose=FALSE
 #                )
-}
   
-  
+
+
   
   #custom functions for heatmap plus
 #   corrdist <- function(x) as.dist( 1 - cor(t(x),method="spearman"))
