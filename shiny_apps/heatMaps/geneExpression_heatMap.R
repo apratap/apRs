@@ -1,6 +1,7 @@
 #require("Heatplus")
 require("pheatmap")
-
+library("R.cache")
+#source("pheatmap_mod.R")
 
 #gene expression heatmap logic
 get_geneExpression_heatMap <- function(m,annotation,...){
@@ -26,6 +27,22 @@ get_geneExpression_heatMap <- function(m,annotation,...){
            fontsize_col = 4,
            border_color = NA
   )
+  
+#   memoizedCall(what=pheatmap,
+#                mat.scaled,
+#                scale="none",
+#                annotation = annotation,
+#                clustering_distance_rows = "correlation",
+#                clustering_distance_cols = "correlation",
+#                clustering_method = "average",
+#                fontsize_col = 4,
+#                border_color = NA,
+#                envir=parent.frame(),
+#                force=FALSE,
+#                sources=NULL,
+#                dirs=NULL,
+#                verbose=FALSE
+#                )
 }
   
   
