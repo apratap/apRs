@@ -110,6 +110,10 @@ drop_genes <- which(apply(m,1,sd) < .2)
 m <-  m[-drop_genes,]
 
 
+#log transform
+m <- log2(m+1)
+
+
 ###########
 #draw the correlation
 ##########
