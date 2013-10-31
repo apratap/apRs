@@ -3,6 +3,41 @@ library(plyr)
 library(reshape)
 library(ggplot2)
 library("DESeq2")
+library("gdata")
+library(plyr)
+
+
+#reading in the clinical data
+RA_clinical_data_file <- "~/apratap_bt/projects//RA/AIR_Clinical_Data.xls"
+patient_metadata <- read.xls(RA_clinical_data_file,sheet='demo')
+patient_drugs <- read.xls(RA_clinical_data_file,sheet='drugs')
+
+dlply(.data  = patient_drugs,
+      .variables = .(qstkitid),
+      .fun = function(x) class(x))
+)
+tapply(patient_drugs, patient_drugs$qstkitid, function(x) class(x))
+
+#change the datetime object
+patient_drugs$date <- as.Date(as.character(patient_drugs$date),format="%Y-%m-%d")
+
+class(as.Date(as.character(patient_drugs$date),format="%Y-%m-%d"))
+
+?as.Date
+
+apply(patient_drugs,2,class)
+
+
+?mapply
+(patient_drugs,patient_drugs$)
+
+head(patient_drugs)
+tapply(patient_drugs,patient_drugs$qstkitid,function(x))
+
+class(patient_drugs$date)
+
+patient_drugs[1,]
+
 
 
 
@@ -14,8 +49,6 @@ library("TxDb.Hsapiens.UCSC.hg19.knownGene")
 hg19_txdb <- TxDb.Hsapiens.UCSC.hg19.knownGene
 showMethods(class=class(hg19_txdb))
 hg19_refGenes_by_exons <- exonsBy(hg19_txdb,by="gene")
-
-head(hg19_refGenes_by_exons)
 
 
 #get a bam file list for counting
