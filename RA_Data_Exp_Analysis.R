@@ -1,11 +1,9 @@
-source("gene_exp_analysis.R")
 library(plyr)
 library(reshape)
-library(ggplot2)
-library("DESeq2")
+library("ggplot2")
 library("gdata")
 library(plyr)
-
+library("Rsamtools")
 
 #reading in the clinical data
 RA_clinical_data_file <- "~/apratap_bt/projects//RA/AIR_Clinical_Data.xls"
@@ -39,11 +37,9 @@ class(patient_drugs$date)
 patient_drugs[1,]
 
 
-
-
-#setup the parallel environment
-options(mc.cores=8)
-
+##############
+#COUNTING
+#############
 #get the annotation
 library("TxDb.Hsapiens.UCSC.hg19.knownGene")
 hg19_txdb <- TxDb.Hsapiens.UCSC.hg19.knownGene
@@ -51,38 +47,48 @@ showMethods(class=class(hg19_txdb))
 hg19_refGenes_by_exons <- exonsBy(hg19_txdb,by="gene")
 
 
+#change the chr names to match that of BAMs to enable counting
+new_labels <- sub("chr","",seqlevels(hg19_txdb))
+new_labels <- toupper( sub("Un_","",new_labels) )
+new_labels <- unlist(lapply(new_labels,function(x) if(startsWith(x,'GL')) paste0(x,'.1') else (x) ))
+names(new_labels) <- seqlevels(hg19_txdb)
+hg19_refGenes_by_exons <-  renameSeqlevels(hg19_refGenes_by_exons,new_labels)
+
 #get a bam file list for counting
-data_base_dir <- "~/projects/PCBC_integrative_analysis/data/"
-bamFilesList <- dir(data_base_dir,pattern="accepted_hits.bam",recursive=T)
-bamFilesList_obj <- BamFileList(bam_files_list,yieldSize=2000000,index=character())
-
-
+data_base_dir <- "~/projects/RA//work"
+#data_base_dir <- "~/projects/RA/testing/"
+bamFilesList <- dir(data_base_dir,pattern="*.bam$",recursive=T,full.names=T)
+bamFilesList_obj <- BamFileList(bamFilesList,yieldSize=2000000,index=character())
+bamFilesList_obj
 #restrict the counting to primary alignment of paired reads
 flag <- scanBamFlag(isNotPrimaryRead=FALSE,isProperPair=TRUE)
 #selecting the params in the bam needed for counting
 bam_params <- c("rname","pos","cigar")
 params <- ScanBamParam(what=bam_params,flag=flag)
 
-
 #do the counting
-counts <- summarizeOverlaps(features=mm10_refGenes_by_exons,
-                            reads = bamFileList_obj,
+#setup the parallel environment
+options(mc.cores=10)
+counts <- summarizeOverlaps(features=hg19_refGenes_by_exons,
+                            reads = bamFilesList_obj,
                             ignore.strand=TRUE,
-                            single.end = FALSE,
-                            params = params)
-
-#change the colnames (shorten)
-new_colnames <- gsub("^.*(TRA.+?)/.+$", '\\1',colnames(counts),perl=T)
-colnames(counts) <- new_colnames
-save.image(file="~/projects/PCBC_integrative_analysis/data/diff_exp_analysis/R.data")
-
+                            single.end = FALSE)
+         
+save.image(file="~/projects/RA/work/expAnalysis/R.data")
+                                              
 
 
 ##load the saved R objects
-load("~/apratap_bt/projects/PCBC_integrative_analysis/data/diff_exp_analysis/R.data")
+load("~/projects/RA/work/expAnalysis/R.data")
+
+
+
 
 counts_mat <- assays(counts)$counts
-counts_mat <- (counts_mat[,-3]) #remove the sample with low read counts #TRA00010815
+
+sum(apply(counts_mat,1,function(x) all(x)))
+
+counts_mat
 studyDesign <- data.frame(row.names = colnames(counts_mat),
                           condition = c("ablated","ablated","control","ablated","ablated",
                                         "control","control"),
@@ -114,7 +120,6 @@ sum(diff_exp_test$padj < .10, na.rm=T)
 ##########
 #relevelling : refer the DESeq2 vignette for more details
 studyDesign$condition <- relevel(studyDesign$condition,ref="control")
-
 
 diff_exp_dataset  <- DESeqDataSetFromMatrix(countData = counts_mat,
                                             colData = studyDesign,
@@ -166,7 +171,6 @@ png(filename="~/apratap_bt/projects/PCBC_integrative_analysis/data/diff_exp_anal
 )
 draw_heatmap(log2(sigGenes_counts_norm_mat+1),scale=T,labRow=T,key=T)
 dev.off()
-
 
 paste(sig_genes$SYMBOL,collapse=",")
 
