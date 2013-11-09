@@ -1,45 +1,89 @@
-library(plyr)
-library(reshape)
+library("plyr")
+library("reshape")
 library("ggplot2")
 library("gdata")
-library(plyr)
+library("plyr")
 library("Rsamtools")
+library("RColorBrewer")
+library("gplots")
+library("pheatmap")
+library("GGally")
 
+#####
 #reading in the clinical data
-RA_clinical_data_file <- "~/apratap_bt/projects//RA/AIR_Clinical_Data.xls"
+#####
+BASE_DIR = "~/Desktop/"
+#first file
+RA_clinical_data_file <- paste0(BASE_DIR,"AIR_Clinical_Data.xls")
 patient_metadata <- read.xls(RA_clinical_data_file,sheet='demo')
+#second file
+RA_clinical_data_file_2 <- paste0(BASE_DIR,"AIR_clinical_data_RNA-seq.xls")
+patient_metadata_extra_info <- read.xls(RA_clinical_data_file_2)
+new_colnames <- c('sample_id','collab_participant_id','collab_sample_id','sample_date','collection_time',
+                  'date_received','transit_days','CRP','RF','CCP','dx1_physician_confirmed',
+                  'pdx1_patient_reported', 'category')
+colnames(patient_metadata_extra_info) <- new_colnames
+#remove the first row
+patient_metadata_extra_info <- patient_metadata_extra_info[-1,]
+#fix the sample id col to match with the patient_metdata qstkidid
+patient_metadata_extra_info$sample_id <- sub('-','',patient_metadata_extra_info$sample_id)
+
+
+#merge with the main patient meta data
+cols_to_keep = c('sample_id','collab_participant_id','collab_sample_id','dx1_physician_confirmed',
+                 'pdx1_patient_reported', 'category','transit_days')
+patient_metadata <- merge(patient_metadata,patient_metadata_extra_info[cols_to_keep],by.x='qstkitid',by.y='sample_id')
+
+#create a new col : disease_activity : low / high
+patient_metadata[grepl('*.LOW',patient_metadata$category),'disease_activity'] = 'low'
+patient_metadata[grepl('*.HI',patient_metadata$category),'disease_activity'] = 'high'
+
+       
+#########
+#patient drugs
+#########
 patient_drugs <- read.xls(RA_clinical_data_file,sheet='drugs')
-
-dlply(.data  = patient_drugs,
-      .variables = .(qstkitid),
-      .fun = function(x) class(x))
-)
-tapply(patient_drugs, patient_drugs$qstkitid, function(x) class(x))
-
 #change the datetime object
 patient_drugs$date <- as.Date(as.character(patient_drugs$date),format="%Y-%m-%d")
 
-class(as.Date(as.character(patient_drugs$date),format="%Y-%m-%d"))
-
-?as.Date
-
-apply(patient_drugs,2,class)
 
 
-?mapply
-(patient_drugs,patient_drugs$)
+#Histogram of C-Reactive Protein values across the patients
+ggplot(data=patient_metadata,aes(x=CRP,fill=sex)) + geom_histogram(binwidth=.05) +
+  xlab('C-Reactive Protein value') + ylab('#patients') + geom_vline(xintercept=c(.20), linetype="dotted",colour="red")
 
-head(patient_drugs)
-tapply(patient_drugs,patient_drugs$qstkitid,function(x))
+#Histogram of RF values
+ggplot(data=patient_metadata,aes(x=RF,fill=sex)) + geom_histogram(binwidth=10) + xlab('Rheumatoid Factor(RF) clinically measured value') + ylab('#patients') 
 
-class(patient_drugs$date)
+#scatter plot RF v/s CRP vals
+ggplot(data=patient_metadata,aes(x=RF,y=CRP,colour=sex)) + geom_point() + 
+  xlab('Rheumatoid Factor(RF) vals') + ylab('C-Reactive Protein vals') + 
+  ggtitle('Clinically measured RF v/s CRP values') + theme_bw()
 
-patient_drugs[1,]
+#merge the drug and patient clinical meta data
+df <- merge(patient_metadata,patient_drugs,by="qstkitid")
+# remove the date.y column for now
+# AND remove the duplicates after that
+drugs_per_patient <- unique(subset(df, select=-c(date.y)))
+drugs_mat <- as.matrix(subset(drugs_per_patient,select=-c(qstkitid,collectiondate.x,date.x,
+                                                      age,sex,CRP,RF,collectiondate.y)))
+rownames(drugs_mat) <- drugs_per_patient$qstkitid
+#create a annotation data frame for heat map
+annotation <- subset(drugs_per_patient,select=c(age,sex,CRP,RF))
+rownames(annotation) <- drugs_per_patient$qstkitid
+
+#render the heatmap of drugs taken by the patient
+pheatmap(t(drugs_mat),
+         scale="none",
+         annotation = annotation,
+         border_color = NA
+)
 
 
-##############
+
+###########
 #COUNTING
-#############
+###########
 #get the annotation
 library("TxDb.Hsapiens.UCSC.hg19.knownGene")
 hg19_txdb <- TxDb.Hsapiens.UCSC.hg19.knownGene
@@ -59,7 +103,6 @@ data_base_dir <- "~/projects/RA//work"
 #data_base_dir <- "~/projects/RA/testing/"
 bamFilesList <- dir(data_base_dir,pattern="*.bam$",recursive=T,full.names=T)
 bamFilesList_obj <- BamFileList(bamFilesList,yieldSize=2000000,index=character())
-bamFilesList_obj
 #restrict the counting to primary alignment of paired reads
 flag <- scanBamFlag(isNotPrimaryRead=FALSE,isProperPair=TRUE)
 #selecting the params in the bam needed for counting
@@ -73,57 +116,162 @@ counts <- summarizeOverlaps(features=hg19_refGenes_by_exons,
                             reads = bamFilesList_obj,
                             ignore.strand=TRUE,
                             single.end = FALSE)
-         
 save.image(file="~/projects/RA/work/expAnalysis/R.data")
-                                              
 
 
-##load the saved R objects
-load("~/projects/RA/work/expAnalysis/R.data")
+#temp
+###load the saved R objects
+load("~/Desktop/R.data")
 
 
+################
+#Post counting processing
+################
+#change the colnames
+cols <- colnames(counts)
+new_cols <- sub("^.*work/Data/","",cols)
+new_cols <- sub("_.*bam","",new_cols)
+colnames(counts) <- new_cols
 
 
+#debug
+new_cols[ ! new_cols %in% patient_metadata$collab_sample_id ]
+patient_metadata$collab_sample_id[ ! patient_metadata$collab_sample_id %in%  new_cols]
+patient_metadata[ ! patient_metadata$collab_sample_id %in%  new_cols, ][,c('qstkitid','collab_participant_id',
+                                                                           "collab_sample_id")]
+#END DEBUG
+
+
+#get the count mat
 counts_mat <- assays(counts)$counts
 
-sum(apply(counts_mat,1,function(x) all(x)))
+#write read counts
+write.table(counts_mat,"~/Desktop/RA_Data_Expression_Counts.txt",sep="\t")
 
-counts_mat
-studyDesign <- data.frame(row.names = colnames(counts_mat),
-                          condition = c("ablated","ablated","control","ablated","ablated",
-                                        "control","control"),
-                          libType   = rep('paired-end',ncol(counts_mat))
-)
+#PUSH to synapse
+library(synapseClient)
+synapseLogin()
+#get list of files used for counting : synapse ids
+synBams <- synapseQuery('select id from entity WHERE parentId == "syn2280648" and fileType =="bam" ')
+synBams <- as.vector(synBams$entity.id)
+counts_file <- File("~/Desktop/RA_Data_Expression_Counts.txt",parentId = 'syn2290931')
+counts_activity <- Activity(used=synBams,executed=list(url='https://raw.github.com/apratap/apRs/master/RA_Data_Exp_Analysis.R'))
+counts_file <- synStore(counts_file,activity=counts_activity)
 
-
-#DESeq 1 based
-#calc the size factor for norm
-cds <- newCountDataSet(counts_mat,studyDesign$condition)
-cds <- estimateSizeFactors(cds)
-sizeFactors(cds)
-#normalize counts
-head(counts(cds,normalized=TRUE))
-#estimate dispersion
-cds <- estimateDispersions(cds)
-plotDispEsts(cds) # manual inspection
-#test for differential expression
-diff_exp_test <- nbinomTest(cds,"ablated","control")
-plotMA(diff_exp_test)
-hist(diff_exp_test$pval)
-hist(diff_exp_test$padj)
-sum(diff_exp_test$padj < .10, na.rm=T)
+#total number of reads mapped in exonic region per sample
+total_exonicReads_per_sample <- apply(counts_mat,2,sum)
+p <- qplot(names(total_exonicReads_per_sample),total_exonicReads_per_sample,geom=c("line","point"),group="identity") 
+p + theme(axis.text.x=element_text(angle=90, hjust=0))
 
 
+#RPKM
+returnRPKM <- function(counts, features) {
+  featureLengthsInKB <- sum(width(reduce(features))) / 1000 # geneLength length of exon per gene in Kbp
+  millionsMapped <- sum(counts) / 1e+06 #Factor for normalizing , converting to per million mapped reads / feature
+  rpm <- counts / millionsMapped  #RPM : reads per kb of exon model
+  rpkm <- rpm / featureLengthsInKB #RPKM : reads per kilobase of exon model per million mapped reads
+  return(rpkm)            
+}
+
+
+############
+# hg19 annotation conversion
+############
+# library("org.Hs.eg.db")
+# k <- keys(org.Hs.eg.db,keytype="ENTREZID")
+# keytypes(org.Hs.eg.db)
+# mm10_gene_names <- select(org.Hs.eg.db, keys=k, cols=c("SYMBOL","GENENAME"), keytype="ENTREZID")
+# dim(mm10_gene_names)
+# res <- merge(res,mm10_gene_names,by.x='entrez_gene_id', by.y="ENTREZID")
+
+
+
+#################
+#Exploratory analysis for diff exp signal
+#################
+rpkm_counts_mat <- apply(counts_mat,2,function(x) returnRPKM(x,hg19_refGenes_by_exons))
+rpkm_counts_mat <- log10(rpkm_counts_mat+1)  #log 2 transform the counts
+
+#temp
+bak_rpkm <- rpkm_counts_mat
+rpkm_counts_mat <- bak_rpkm
+
+
+#box plot of expression values across all the samples
+melted_rpkm_counts <- melt(rpkm_counts_mat)
+colnames(melted_rpkm_counts) <- c('gene_id','sample','value')
+ggplot(data=melted_rpkm_counts, aes(x=factor(sample),y=value)) + geom_boxplot() + 
+  theme(axis.text.x=element_text(angle=90, hjust=0)) + xlab('Samples') + ylab('Normalized Counts(RPKM, log10 scale)')
+
+#filter genes with 0 exp in >= 20% samples, keep only 
+genes_to_keep <- which( apply(rpkm_counts_mat, 1, function(x) {sum(x == 0.0)/length(x)} ) <= .20 )
+rpkm_counts_mat <- rpkm_counts_mat[ genes_to_keep, ]
+dim(rpkm_counts_mat)
+
+#remove genes whoose expression dont vary much across ALL the samples
+#cut off variance = .20
+flt_rpkm_counts_mat <- rpkm_counts_mat[which(apply(rpkm_counts_mat,1,sd) > .15 ), ]
+dim(flt_rpkm_counts_mat)
+
+#keep only those samples for which we have meta-data
+#mostly a sanity check step 
+# for now 3 samples dont have metadata
+flt_counts_mat <- counts_mat[ , colnames(counts_mat) %in% patient_metadata$collab_sample_id ]
+flt_rpkm_counts_mat <- flt_rpkm_counts_mat[, colnames(flt_rpkm_counts_mat) %in% patient_metadata$collab_sample_id ]
+
+#create a annotation data frame for heat map
+annotation <- subset(patient_metadata,select=c(disease_activity))
+rownames(annotation) <- patient_metadata$collab_sample_id
+
+#scaled the data across experiments
+m <- (t(scale(t(flt_rpkm_counts_mat))))
+pheatmap(m,
+         annotation = annotation,
+         scale="none",
+         border_color = NA
+         )
 
 ##########
+#PCA Plot
+##########
+pca <- prcomp(flt_rpkm_counts_mat,scale=T)
+summary(pca)
+
+pca$x
+
+melted <- cbind(disease_type = as.vector(conditions),melt(pca$x[,1:9]))
+head(melted)
+ggplot(data=melted) + geom_bar(aes(x=X1,y=value,fill=disease_type),stat="identity") +
+  facet_wrap(~X2)
+  
+
+
+
+
+
+############
 #DESeq2 based
-##########
-#relevelling : refer the DESeq2 vignette for more details
-studyDesign$condition <- relevel(studyDesign$condition,ref="control")
+############
+library("DESeq2")
+#creating the study design
+conditions <- sapply(colnames(flt_counts_mat), function(x) {
+                                                    patient_metadata[patient_metadata$collab_sample_id == x,'disease_activity'] 
+                                                  })
 
-diff_exp_dataset  <- DESeqDataSetFromMatrix(countData = counts_mat,
-                                            colData = studyDesign,
-                                            design = ~ condition)
+studyDesign <- data.frame(condition = as.character(conditions),
+                          libType   = rep('paired-end',ncol(flt_counts_mat))
+                          )
+rownames(studyDesign) <- colnames(flt_counts_mat)
+
+#main entry point
+diff_exp_dataset <- DESeqDataSetFromMatrix(countData = flt_counts_mat,
+                                           colData = studyDesign,
+                                           design = ~ condition)
+
+#relevelling : refer the DESeq2 vignette for more details
+colData(diff_exp_dataset)$condition <- factor(colData(diff_exp_dataset)$condition,
+                                              levels= c('low','high'))
+
 diff_exp_result <- DESeq(diff_exp_dataset)
 res <- as.data.frame(results(diff_exp_result))
 res$entrez_gene_id <- rownames(res)
@@ -131,12 +279,11 @@ res$entrez_gene_id <- rownames(res)
 
 
 #merge annotation
-library("org.Mm.eg.db")
-k <- keys(org.Mm.eg.db,keytype="ENTREZID")
-keytypes(org.Mm.eg.db)
-mm10_gene_names <- select(org.Mm.eg.db, keys=k, cols=c("SYMBOL","GENENAME"), keytype="ENTREZID")
-dim(mm10_gene_names)
-res <- merge(res,mm10_gene_names,by.x='entrez_gene_id', by.y="ENTREZID")
+library("org.Hs.eg.db")
+k <- keys(org.Hs.eg.db,keytype="ENTREZID")
+keytypes(org.Hs.eg.db)
+hg19_gene_names <- select(org.Hs.eg.db, keys=k, columns=c("SYMBOL","GENENAME"), keytype="ENTREZID")
+res <- merge(res,hg19_gene_names,by.x='entrez_gene_id', by.y="ENTREZID")
 
 #order by p.adj
 res <- res[order(res$padj),]
@@ -144,10 +291,10 @@ res <- res[order(res$padj),]
 
 #get the diff exp genes with p.adj < .10
 sig_genes <- subset(res, padj < .10)
-sig_genes
 
-#generate a table of sig genes at 
-for_syn_table <- sig_genes[c('SYMBOL','GENENAME','log2FoldChange','padj')]
+#generate a table of sig genes at
+head(sig_genes)
+for_syn_table <- sig_genes[c('SYMBOL','GENENAME','log2FoldChange','pvalue','padj')]
 x <- apply(for_syn_table,1,function(x) cat(paste(x,collapse='|'),"\n"))
 
 
@@ -160,6 +307,7 @@ sigGenes_counts_norm_mat <- counts_norm_mat[ sig_genes$entrez_gene_id, ]
 new_row_names <- unlist(lapply(rownames(sigGenes_counts_norm_mat), function(x) sig_genes[sig_genes$entrez_gene_id == x,]$SYMBOL))
 rownames(sigGenes_counts_norm_mat) <- new_row_names
 
+head(sigGenes_counts_norm_mat)
 
 #heatmap col
 source("gene_exp_analysis.R")
@@ -172,55 +320,11 @@ png(filename="~/apratap_bt/projects/PCBC_integrative_analysis/data/diff_exp_anal
 draw_heatmap(log2(sigGenes_counts_norm_mat+1),scale=T,labRow=T,key=T)
 dev.off()
 
-paste(sig_genes$SYMBOL,collapse=",")
-
-######
-#cuffdiff results
-#####
-install.packages("cummeRbund")
-
-cuffdiff_significant_genes <-c("1500011K16Rik 1600014K23Rik 1700113A16Rik 1810043H04Rik 6330416G13Rik A2m Actr3b Adamts5 Adm Adm2 Ahsa1 Aloxe3 Ampd3 Amph Anxa4 Atf4 Atf6b Atp6v0d2 Atrip Bach1 Bag5 Baiap2l1 Bak1 Bbs5 Bcar1 Bhlhe40 Bnip3 Bola1 Btaf1 Car12 Car14 Ccdc90a Ccl3 Ccng2 Cdc42ep4 Cdkn1b Cdkn2aipnl Chst15 Cited1 Cmtm3 Col27a1 Cox4i2 Cpox Creb5 Crim1 Ctgf Ctla2a Ddit4 Ddt Dixdc1 Dnajb2 Dpp6 Dusp4 Dync1li1 Dynll2 Ear1 Edn1 Efnb3 Egln3 Egr1 Eif4h Emb Emp2 Endov Eno2 Epor Erc2 Eri2 Erich1 Errfi1 F3 Fam162a Fam189b Fam71f2 Fbxl14 Folr2 Fosl2 Fst Gabarapl1 Galk1 Gatsl3 Gtf2h2 Gtpbp6 Gzmd H2-Aa Hand2 Hephl1 Hist1h4j Hk2 Hlx Hsd17b2 Hsd3b6 Htra1 Ier3 Ift43 Igfbp3 Igsf11 Il17rd Il1rl2 Inf2 Ints1 Ipo13 Ippk Irak3 Jph1 Jpx Kansl2 Katna1 Kbtbd11 Kit Klhdc8b Klhl5 Krt18 Krt19 Krt8 Lin28a Lipg Lpcat1 Ly6c2 Ly75 Maff Map3k11 Mark1 Mcat Mcm3 Mcm5 Mcph1 Med9 Mex3c Mfap5 Mgat4b Mir208a Mir677 Mmp15 Mpl Msi1 Mt1 Mt2 Mta2 Mtrf1l Mttp Nabp1 Ndrg1 Nf2 Nfatc4 Nrn1 Nubp2 P4ha1 P4ha2 Pde10a Pdxp Pf4 Pfkfb3 Phactr2 Plekha6 Pln Polr2f Ppp1r13l Ppp1r3c Ppp5c Prdm1 Prl3d2 Prl3d3 Prl7d1 Prl8a2 Prl8a9 Purg Rangap1 Rapgef2 Rasgrp1 Reck Rgs6 Rhox6 Rhox9 Ric3 Rimklb Rmrp Rnaseh2c Rnf103 Rtel1 Runx1 Rxfp1 S100a6 Sec61a1 Selenbp1 Sema3c Sema6d Serpinb9b Serpinb9f Serpinb9g Serpine1 Sftpd Sgk1 Shisa3 Slc2a3 Slc39a14 Slc52a2 Slc6a2 Slc7a3 Slc7a5 Slco2a1 Sprr2g Sprr2h Srgn Srsf12 Star Tfpt Tmem242 Tmem41a Tnfrsf1b Tns3 Trabd Trappc6a Trib3 Ttc8 Ttll7 Usp53 Vegfa Vkorc1 Vldlr Vta1 Wfdc2 Wnk4 Wsb1 Zbtb26 Zc3h4 Zfp395 Zfp398 Zfp41 Zfp414 Zfp691 Zfyve26 Zmat2")
-cuffdiff_significant_genes <- unlist(strsplit(cuffdiff_significant_genes, " " ))
-names(gene_counts)
-m_cuffdff <- subset(gene_counts , tracking_id %in% cuffdiff_significant_genes)
-m_cuffdff <- as.matrix(m_cuffdff[2:ncol(m_cuffdff)])
-
-#genes which have 0 epxression > 20% of samples
-genes_not_uniformly_expressed <- which( apply(m_cuffdff,1,function(x) {sum(x==0)/ncol(m)}) > .20)
-m_cuffdff <- m_cuffdff[-genes_not_uniformly_expressed,]
 
 
-#correlation
-pairs(m_cuffdff, upper.panel=panel.correlation, lower.panel=panel.smooth, main = title)
-#heatmap
-draw_heatmap(m_cuffdff)
-m_filt_p.adj
-
-
-
-
-###################
-#testing
-###################
-
-
-biocLite("parathyroidSE")
-biocLite("pasilla")
-library("pasilla")
-library("parathyroidSE")
-
-data("parathyroidGenesSE")
-data("pasillaGenes")
-countData <- counts(pasillaGenes)
-pData(pasillaGenes)
-head(countData)
-se <- parathyroidGenesSE
-counts_mat
-
-
-ls("package:org.Mm.eg.db")
-class(org.Mm.egGENENAME)
-columns(org.Mm.eg.db)
-keytypes(org.Mm.eg.db)
-keys(org.Mm.eg.db,keytype="SYMBOL")
-
+pheatmap(t(scale(t(sigGenes_counts_norm_mat))),
+         scale="none",
+         annotation = annotation,
+         border_color = NA
+)
+plotMA(diff_exp_result)
