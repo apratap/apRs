@@ -1,6 +1,7 @@
 require(grid)
 require(RColorBrewer)
 require(memoise)
+library("WGCNA")
 
 lo = function(rown, coln, nrow, ncol, cellheight = NA, cellwidth = NA, 
               treeheight_col, treeheight_row, legend, annotation, annotation_colors, annotation_legend, 
@@ -244,7 +245,7 @@ heatmap_motor = function(matrix, border_color, cellwidth, cellheight, tree_col, 
                          treeheight_col, treeheight_row, filename, width, height, breaks, color, legend, 
                          annotation, annotation_colors, annotation_legend, main, fontsize, fontsize_row, 
                          fontsize_col, fmat, fontsize_number, useRaster, drawRowD,
-                         explicit_rownames,...){
+                         explicit_rownames=NULL, ...){
   grid.newpage()
   
   # Set layout
@@ -289,7 +290,7 @@ heatmap_motor = function(matrix, border_color, cellwidth, cellheight, tree_col, 
                   annotation_legend = annotation_legend, filename = NA, main = main, fontsize = fontsize, 
                   fontsize_row = fontsize_row, fontsize_col = fontsize_col, fmat = fmat, 
                   fontsize_number =  fontsize_number, useRaster = useRaster, drawRowD = drawRowD,
-                  explicit_rownames,...)
+                  explicit_rownames=NULL, ...)
     dev.off()
     upViewport()
     return()
@@ -327,6 +328,7 @@ heatmap_motor = function(matrix, border_color, cellwidth, cellheight, tree_col, 
   pushViewport(vp)
   upViewport()
   
+  #Draw colnames
   if(length(colnames(matrix)) != 0){
     pushViewport(vplayout(5, 2))
     pars = list(colnames(matrix), fontsize = fontsize_col, ...)
@@ -334,7 +336,11 @@ heatmap_motor = function(matrix, border_color, cellwidth, cellheight, tree_col, 
     upViewport()
   }  
   
-  if(length(explicit_rownames) == nrow(matrix)){
+  #Draw rownames
+  if(length(rownames(matrix)) != 0 ){
+    if(is.null(explicit_rownames) == 'TRUE'){
+      explicit_rownames = rownames(matrix)
+    }
     pushViewport(vplayout(4, 3))
     pars = list(explicit_rownames, fontsize = fontsize_row, ...)
     do.call(draw_rownames, pars)
@@ -351,7 +357,7 @@ heatmap_motor = function(matrix, border_color, cellwidth, cellheight, tree_col, 
   
   # Draw annotation legend
   if(!is.na(annotation[[1]][1]) & annotation_legend){
-    if(length(explicit_rownames) == nrow(matrix) & length(explicit_rownames) <= 70 ) {
+    if( length(rownames(matrix)) <= 70 ) {
       pushViewport(vplayout(4:5, 5))
     }
     else{
@@ -364,7 +370,7 @@ heatmap_motor = function(matrix, border_color, cellwidth, cellheight, tree_col, 
   # Draw legend IF not drawing the ROW names
   if(!is.na(legend[1])){
     length(colnames(matrix))
-    if(length(explicit_rownames) == nrow(matrix) & length(explicit_rownames) <= 70 ){
+    if(length(rownames(matrix)) <= 70 ){
       # pushViewport(vplayout(4:5, 4))
       # DO NOTHING
     }
@@ -418,7 +424,7 @@ cluster_mat = function(mat, distance, method, cor_method){
     }
   }
   
-  return(hclust(d, method = method))
+  return(flashClust(d, method = method)) #hclust replaced by flashClust from WCGNA (much faster than hclust)
 }
 
 #for faster rendering caching the computationally expensive functions
@@ -650,7 +656,8 @@ memoised_pheatmap = function(mat, color = colorRampPalette(rev(brewer.pal(n = 7,
                              drop_levels = TRUE, show_rownames = T, show_colnames = T, main = NA, fontsize = 10, 
                              fontsize_row = fontsize, fontsize_col = fontsize, display_numbers = F, number_format = "%.2f", 
                              fontsize_number = 0.8 * fontsize, filename = NA, width = NA, height = NA, 
-                             useRaster=FALSE, drawRowD=TRUE, explicit_rownames = 'none',cor_method = "pearson", ...){
+                             useRaster=FALSE, drawRowD=TRUE, cor_method = "pearson",
+                             explicit_rownames = NULL, ...){
   #time at which process started
   start_time = proc.time()
   
@@ -682,6 +689,9 @@ memoised_pheatmap = function(mat, color = colorRampPalette(rev(brewer.pal(n = 7,
     tree_row = memoised_cluster_mat(mat, distance = clustering_distance_rows, method = clustering_method, cor_method=cor_method)
     #tree_row = cluster_mat(mat, distance = clustering_distance_rows, method = clustering_method)
     mat = mat[tree_row$order, , drop = FALSE]
+    if(is.null(explicit_rownames) == FALSE){
+     explicit_rownames =  explicit_rownames[tree_row$order]
+    }
   }
   else{
     tree_row = NA
