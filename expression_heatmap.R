@@ -1,7 +1,7 @@
 require(grid)
 require(RColorBrewer)
 require(memoise)
-library("WGCNA")
+library("flashClust")
 
 lo = function(rown, coln, nrow, ncol, cellheight = NA, cellwidth = NA, 
               treeheight_col, treeheight_row, legend, annotation, annotation_colors, annotation_legend, 
@@ -777,8 +777,6 @@ memoised_pheatmap = function(mat, color = colorRampPalette(rev(brewer.pal(n = 7,
   end_time = proc.time()
   total_time = end_time - start_time
   invisible(list(tree_row = tree_row, tree_col = tree_col, kmeans = km, time=total_time))
-  #return(mat)
-  
 }
 
 
@@ -792,11 +790,11 @@ expHeatMap <- function(m, annotation = NA ,
                        clustering_method = "average",
                        scale = FALSE,...){
   if(nrow(m) <= 2){
-    return(memoised_pheatmap(m, cluster_rows=FALSE,
+    memoised_pheatmap(m, cluster_rows=FALSE,
                              scale="none",
                              annotation = annotation,
                              drawRowD = FALSE,
-                             border_color = NA,...))
+                             border_color = NA,...)
   }
   else{
     #do the clustering and heatmap
